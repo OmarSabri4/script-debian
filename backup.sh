@@ -104,6 +104,31 @@ else
 fi
 
 # ============================
+# PULIZIA BACKUP VECCHI (tieni solo gli ultimi 3)
+# ============================
+
+scrivi_log "Pulizia backup vecchi..."
+
+BACKUP_DIR="$DESTINAZIONE"
+MAX_BACKUP=3
+
+# Conta quanti backup ci sono
+COUNT=$(ls -1 "$BACKUP_DIR"/backup_*.tar.gz 2>/dev/null | wc -l)
+
+if [ "$COUNT" -gt "$MAX_BACKUP" ]; then
+    REMOVE=$(( COUNT - MAX_BACKUP ))
+
+    # Elimina i più vecchi
+    ls -1t "$BACKUP_DIR"/backup_*.tar.gz | tail -n "$REMOVE" | while read FILE; do
+        rm -f "$FILE"
+        scrivi_log "Rimosso backup vecchio: $FILE"
+    done
+else
+    scrivi_log "Nessun backup da rimuovere."
+fi
+
+
+# ============================
 # SPOSTAMENTO FINALE
 # ============================
 scrivi_log "Spostamento archivio nella destinazione..."
