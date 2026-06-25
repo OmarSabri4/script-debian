@@ -6,7 +6,7 @@ set -e
 # ============================
 ORIGINE="/home/omar/lab/sorgente"
 DESTINAZIONE="/home/omar/lab/destinazione"
-LOG_FILE="/home/omar/lab/logs/log.txt"
+LOG_FILE="/home/omar/lab/logs/$(date +%Y%m%d)_log.txt"
 
 DATA=$(date +%Y%m%d_%H%M%S)
 NOME_FILE="backup_${DATA}.tar.gz"
