@@ -10,6 +10,7 @@ LOG_FILE="/home/omar/lab/logs/log.txt"
 
 DATA=$(date +%Y%m%d_%H%M%S)
 NOME_FILE="backup_${DATA}.tar.gz"
+TMP_FILE="/tmp/$NOME_FILE"
 
 # ============================
 # FUNZIONE LOG
@@ -19,82 +20,98 @@ scrivi_log() {
 }
 
 # ============================
-# CONTROLLI PRELIMINARI
+# CREAZIONE CARTELLE
 # ============================
-
-# 1. Origine esiste?
-if [ ! -d "$ORIGINE" ]; then
-    printf "ERRORE: La cartella di origine %s non esiste.\n" "$ORIGINE" >&2
-    exit 1
-fi
-
-# 2. Destinazione esiste? Se no, creala
-if [ ! -d "$DESTINAZIONE" ]; then
-    mkdir -p "$DESTINAZIONE" || {
-        printf "ERRORE: Impossibile creare %s\n" "$DESTINAZIONE" >&2
-        exit 1
-    }
-fi
+mkdir -p "$ORIGINE"
+mkdir -p "$DESTINAZIONE"
 
 scrivi_log "INIZIO PROCESSO BACKUP"
 
 # ============================
-# CONTROLLO SPAZIO SU DISCO
+# CONTROLLO SPAZIO SU /TMP
 # ============================
+scrivi_log "Controllo spazio su /tmp..."
 
-scrivi_log "Verifica spazio su disco..."
+TMP_FS=$(df -P /tmp | tail -1 | awk '{print $1}')
+TMP_DISPONIBILE_KB=$(df -P | grep "$TMP_FS" | head -n 1 | awk '{print int($4)}')
 
-# Spazio richiesto (in KB)
-SPAZIO_RICHIESTO=$(du -s "$ORIGINE" | awk '{print int($1)}')
+# Se /tmp ha meno di 10MB → pulizia
+if [ "$TMP_DISPONIBILE_KB" -lt 10240 ]; then
+    scrivi_log "ATTENZIONE: /tmp quasi piena, pulizia in corso..."
+    rm -rf /tmp/* || true
+fi
 
-# Identifica il filesystem reale della destinazione
-FS=$(df -P "$DESTINAZIONE" | tail -1 | awk '{print $1}')
+# Ricalcolo dopo pulizia
+TMP_DISPONIBILE_KB=$(df -P | grep "$TMP_FS" | head -n 1 | awk '{print int($4)}')
 
-# Spazio disponibile sul filesystem (in KB)
-SPAZIO_DISPONIBILE=$(df -P | grep "$FS" | awk '{print int($4)}')
-
-# Debug (puoi rimuoverli)
-echo "RICHIESTO = $SPAZIO_RICHIESTO"
-echo "DISPONIBILE = $SPAZIO_DISPONIBILE"
-
-# Confronto numerico
-if [ "$SPAZIO_RICHIESTO" -gt "$SPAZIO_DISPONIBILE" ]; then
-    scrivi_log "ERRORE: Spazio insufficiente sul disco di destinazione."
+if [ "$TMP_DISPONIBILE_KB" -lt 10240 ]; then
+    scrivi_log "ERRORE: /tmp non ha spazio sufficiente."
     exit 1
 fi
 
 # ============================
-# CREAZIONE ARCHIVIO
+# CONTROLLO SPAZIO DESTINAZIONE
 # ============================
+scrivi_log "Controllo spazio su disco destinazione..."
 
-scrivi_log "Creazione archivio..."
+# Spazio richiesto in KB
+SPAZIO_RICHIESTO_KB=$(du -s "$ORIGINE" | head -n 1 | awk '{print int($1)}')
+
+# Filesystem della destinazione
+FS=$(df -P "$DESTINAZIONE" | tail -1 | awk '{print $1}')
+
+# Spazio disponibile in KB (solo prima riga)
+SPAZIO_DISPONIBILE_KB=$(df -P | grep "$FS" | head -n 1 | awk '{print int($4)}')
+
+# Conversione in MB
+SPAZIO_DISPONIBILE_MB=$(( SPAZIO_DISPONIBILE_KB / 1024 ))
+
+# Log pulito
+scrivi_log "Spazio disponibile in destinazione: ${SPAZIO_DISPONIBILE_MB} MB"
+
+# Confronto
+if [ "$SPAZIO_RICHIESTO_KB" -gt "$SPAZIO_DISPONIBILE_KB" ]; then
+    scrivi_log "ERRORE: spazio insufficiente sul disco di destinazione."
+    exit 1
+fi
+
+# ============================
+# CREAZIONE ARCHIVIO IN /TMP
+# ============================
+scrivi_log "Creazione archivio in /tmp..."
 
 DIR_PADRE=$(dirname "$ORIGINE")
 NOME_DIR=$(basename "$ORIGINE")
 
-if tar -czf "$DESTINAZIONE/$NOME_FILE" -C "$DIR_PADRE" "$NOME_DIR" 2>> "$LOG_FILE"; then
-    scrivi_log "Archivio creato con successo."
+if tar -czf "$TMP_FILE" -C "$DIR_PADRE" "$NOME_DIR" 2>> "$LOG_FILE"; then
+    scrivi_log "Archivio creato correttamente in /tmp."
 else
-    scrivi_log "ERRORE: Creazione archivio fallita."
+    scrivi_log "ERRORE: creazione archivio fallita."
     exit 1
 fi
 
 # ============================
 # VERIFICA INTEGRITÀ
 # ============================
-
 scrivi_log "Verifica integrità archivio..."
 
-if tar -tzf "$DESTINAZIONE/$NOME_FILE" > /dev/null 2>> "$LOG_FILE"; then
+if tar -tzf "$TMP_FILE" > /dev/null 2>> "$LOG_FILE"; then
     scrivi_log "Archivio integro."
 else
-    scrivi_log "ERRORE: Archivio corrotto!"
+    scrivi_log "ERRORE: archivio corrotto!"
+    rm -f "$TMP_FILE"
     exit 1
 fi
 
 # ============================
-# FINE
+# SPOSTAMENTO FINALE
 # ============================
+scrivi_log "Spostamento archivio nella destinazione..."
 
-scrivi_log "FINE PROCESSO"
+mv "$TMP_FILE" "$DESTINAZIONE" || {
+    scrivi_log "ERRORE: impossibile spostare l'archivio."
+    exit 1
+}
+
+scrivi_log "FINE PROCESSO — BACKUP COMPLETATO"
 exit 0
